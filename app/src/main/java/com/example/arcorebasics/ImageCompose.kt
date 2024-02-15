@@ -85,7 +85,7 @@ fun ImageCompose(glSurfaceView: GLSurfaceView) {
                         .show()
                     var dirtyRenderThread = Thread(Runnable {
                         while (true) {
-                            glSurfaceView!!.requestRender()
+                            glSurfaceView.requestRender()
                             try {
                                 Thread.sleep(50)
                             } catch (e: InterruptedException) {

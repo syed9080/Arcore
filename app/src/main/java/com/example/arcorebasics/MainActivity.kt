@@ -1,17 +1,31 @@
 package com.example.arcorebasics
 
+
+import android.content.ContentValues
 import android.content.ContentValues.TAG
-import android.media.MediaRecorder
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
+import android.graphics.Rect
+import android.graphics.YuvImage
+import android.media.Image
+
+
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
+
 import android.os.Bundle
-import android.os.SystemClock
+import android.os.Environment
+
+import android.provider.MediaStore
 import android.util.Log
 import android.view.WindowManager
-import android.widget.ImageButton
+
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
+
 import com.example.arcorebasics.Helper.CameraPermissionHelper
 import com.example.arcorebasics.ui.theme.ArcoreBasicsTheme
 import com.google.ar.core.ArCoreApk
@@ -24,34 +38,35 @@ import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.SessionPausedException
 import com.google.ar.core.exceptions.UnavailableException
 import com.google.ar.core.exceptions.UnavailableUserDeclinedInstallationException
+import java.io.ByteArrayOutputStream
+
 import java.io.IOException
+
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.EnumSet
 import java.util.Locale
-import java.util.TimeZone
+
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 
+@Suppress("DEPRECATION")
 class MainActivity : ComponentActivity(), GLSurfaceView.Renderer {
     private var glSurfaceView: GLSurfaceView? = null
 
     private var mUserRequestedInstall = true
     private var mSession: Session? = null
     private var backgroundRenderer: BackgroundRenderer? = null
-    private var renderCameraView = false
-    lateinit var settings: ImageButton
-    private lateinit var mediaRecorder: MediaRecorder
-    lateinit var arcorehelper: ARCoreSessionLifecycleHelper
-
-
+    private var flag: Boolean = true
+    private var lastCapturedTime: Long = 0
+    private lateinit var arcorehelper: ARCoreSessionLifecycleHelper
+    private val FRAME_RATE_LIMIT_MILLIS = 250
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        mediaRecorder = MediaRecorder()
         glSurfaceView = findViewById(R.id.surfaceview)
         arcorehelper = ARCoreSessionLifecycleHelper(this)
 
@@ -60,7 +75,7 @@ class MainActivity : ComponentActivity(), GLSurfaceView.Renderer {
         if (isARCoreSupportedAndUpToDate()) {
             Toast.makeText(this, "Hurrah, it's working", Toast.LENGTH_LONG).show()
             initializeARCore()
-            initGLSurfaceView();
+            initGLSurfaceView()
         } else {
             Toast.makeText(this, "ARCore not supported", Toast.LENGTH_LONG).show()
         }
@@ -74,28 +89,16 @@ class MainActivity : ComponentActivity(), GLSurfaceView.Renderer {
         }
 
     }
-    fun startRenderModeDirty() {
-        var dirtyRenderThread = Thread(Runnable {
-            while (true) {
-                glSurfaceView!!.requestRender()
-                try {
-                    Thread.sleep(50)
-                } catch (e: InterruptedException) {
-                    e.printStackTrace()
-                    return@Runnable
-                }
-            }
-        })
-        dirtyRenderThread.start()
-    }
-        // This code is for intialize the glsurfaceview
+
+
+    // This code is for intialize the glsurfaceview
     private fun initGLSurfaceView() {
         // Configure the basic properties of GLSurfaceView and set renderer.
         glSurfaceView!!.preserveEGLContextOnPause = true
         glSurfaceView!!.setEGLContextClientVersion(2)
 
         glSurfaceView!!.setRenderer(this)
-        glSurfaceView!!.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
+        glSurfaceView!!.renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
 
 
         Toast.makeText(this, "hurrah glSurfaceView initialization", Toast.LENGTH_LONG).show()
@@ -173,6 +176,7 @@ class MainActivity : ComponentActivity(), GLSurfaceView.Renderer {
 
     }
 
+    @Deprecated("Deprecated in Java")
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<String>,
@@ -242,7 +246,10 @@ class MainActivity : ComponentActivity(), GLSurfaceView.Renderer {
         GLES20.glClearColor(0f, 0f, 0f, 1.0f)
 
         try {
-            Log.d(TAG, "surface created sdaffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+            Log.d(
+                TAG,
+                "surface created sdaffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            )
             // Initialize OpenGL settings for drawing background and Virtual Object
             // It mainly includes textureId, Texture Coordinations, Shader, Program, and so on.
             backgroundRenderer = BackgroundRenderer()
@@ -260,6 +267,7 @@ class MainActivity : ComponentActivity(), GLSurfaceView.Renderer {
         mSession?.setDisplayGeometry(displayRotation, width, height)
     }
 
+
     override fun onDrawFrame(gl: GL10?) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
@@ -270,45 +278,32 @@ class MainActivity : ComponentActivity(), GLSurfaceView.Renderer {
         try {
             val frame: Frame = mSession!!.update()
 
-
-
-            // Get the capture time of the AR frame in milliseconds
-
+            // Get the capture time of the AR frame in nanoseconds
             val frameCaptureTimeNanos = frame.timestamp
 
-            // Convert the capture time to a human-readable format
-            val formattedDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
-                .format(Date(frameCaptureTimeNanos / 1_000_000))
+            // Convert the capture time to milliseconds
+            val frameCaptureTimeMillis = convertNanosToMillis(frameCaptureTimeNanos)
+
+            if (flag) {
+                lastCapturedTime = frameCaptureTimeMillis
+                flag = false
+            }
 
 
-            Log.d(TAG, "AR Frame captured at: $formattedDate")
+            if (frameCaptureTimeMillis - lastCapturedTime >= FRAME_RATE_LIMIT_MILLIS) {
+                val currentDateTime = getCurrentDateTime()
+                Log.d("FrameCapture", "Captured frame at $currentDateTime")
 
+                // Save the frame as an image
+                saveFrameToStorage(frame)
 
+                // Update the last captured time
+                lastCapturedTime = frameCaptureTimeMillis
+            }
 
+            backgroundRenderer?.draw(frame)
 
-
-
-
-
-            val screenWidth = glSurfaceView?.width ?: 1
-            val screenHeight = glSurfaceView?.height ?: 1
-
-            // Calculate center coordinates
-            val centerX = screenWidth / 2
-            val centerY = screenHeight / 2
-
-            Log.d("center of the screen","centerX:${centerX};;;;;;;;;centerY:${centerY}")
-
-
-
-
-
-                backgroundRenderer?.draw(frame)
-
-
-
-                // Update previous camera pose
-
+            // Update previous camera pose
 
         } catch (e: CameraNotAvailableException) {
             e.printStackTrace()
@@ -317,8 +312,66 @@ class MainActivity : ComponentActivity(), GLSurfaceView.Renderer {
         }
     }
 
+    private fun convertCameraImageToBitmap(cameraImage: Image): Bitmap {
+        val width = cameraImage.width
+        val height = cameraImage.height
+        val yBuffer = cameraImage.planes[0].buffer
+        val uvBuffer = cameraImage.planes[2].buffer
+
+        val ySize = yBuffer.remaining()
+        val uvSize = uvBuffer.remaining()
+
+        val nv21 = ByteArray(ySize + uvSize)
+        yBuffer.get(nv21, 0, ySize)
+        uvBuffer.get(nv21, ySize, uvSize)
+
+        val yuvImage = YuvImage(nv21, ImageFormat.NV21, width, height, null)
+        val out = ByteArrayOutputStream()
+        yuvImage.compressToJpeg(Rect(0, 0, width, height), 100, out)
+
+        val imageBytes = out.toByteArray()
+        return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+    }
+
+    private fun saveFrameToStorage(frame: Frame) {
+        // Get the bitmap representation of the AR frame
+        val cameraImage = frame.acquireCameraImage()
+        val bitmap = convertCameraImageToBitmap(cameraImage)
+
+        // Save the bitmap to the external storage directory or any other preferred location
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, "ARFrame_${System.currentTimeMillis()}")
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
+        }
 
 
+        val contentResolver = this.contentResolver
+        val uri =
+            contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
 
+        uri?.let {
+            contentResolver.openOutputStream(it).use { outputStream ->
+                if (outputStream != null) {
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)
+                }
+                outputStream?.flush()
+            }
+        }
+
+        // Release the acquired camera image
+        cameraImage.close()
+    }
+
+
+    private fun convertNanosToMillis(nanos: Long): Long {
+        return nanos / 1_000_000
+    }
+
+    private fun getCurrentDateTime(): String {
+        val currentDate = Date()
+        val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
+        return formatter.format(currentDate)
+    }
 
 }
