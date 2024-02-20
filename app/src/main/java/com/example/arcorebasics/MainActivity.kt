@@ -3,6 +3,7 @@ package com.example.arcorebasics
 
 import android.content.ContentValues
 import android.content.ContentValues.TAG
+import android.content.Context
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -62,11 +63,16 @@ class MainActivity : ComponentActivity(), GLSurfaceView.Renderer {
     private var lastCapturedTime: Long = 0
     private lateinit var arcorehelper: ARCoreSessionLifecycleHelper
     private val FRAME_RATE_LIMIT_MILLIS = 250
+    private var i=0;
+    var context: Context? =null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+
+
+        context= this
         glSurfaceView = findViewById(R.id.surfaceview)
         arcorehelper = ARCoreSessionLifecycleHelper(this)
 
@@ -278,6 +284,12 @@ class MainActivity : ComponentActivity(), GLSurfaceView.Renderer {
         try {
             val frame: Frame = mSession!!.update()
 
+
+//            Log.d("frame.acquireCameraImage().timestamp",
+//                frame.acquireCameraImage().timestamp.toString()
+//            )
+            Log.d("frame.timestamp", frame.timestamp.toString())
+
             // Get the capture time of the AR frame in nanoseconds
             val frameCaptureTimeNanos = frame.timestamp
 
@@ -293,9 +305,10 @@ class MainActivity : ComponentActivity(), GLSurfaceView.Renderer {
             if (frameCaptureTimeMillis - lastCapturedTime >= FRAME_RATE_LIMIT_MILLIS) {
                 val currentDateTime = getCurrentDateTime()
                 Log.d("FrameCapture", "Captured frame at $currentDateTime")
-
+                // process capture
+                ProcessFrame(frame,i++,context)
                 // Save the frame as an image
-                saveFrameToStorage(frame)
+//                saveFrameToStorage(frame)
 
                 // Update the last captured time
                 lastCapturedTime = frameCaptureTimeMillis
